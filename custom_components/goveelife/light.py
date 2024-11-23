@@ -109,11 +109,15 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
                     else:
                         _LOGGER.warning("%s - %s: _init_platform_specific: unhandled cap option: %s -> %s", self._api_id, self._identifier, cap['type'], option)
             elif cap['type'] == 'devices.capabilities.range' and cap['instance'] == 'brightness':
-                self._attr_supported_color_modes.add(ColorMode.BRIGHTNESS)
+                self._attr_supported_color_modes.discard(ColorMode.ONOFF)
+                if not self._attr_supported_color_modes:
+                    self._attr_supported_color_modes.add(ColorMode.BRIGHTNESS)
                 self._brightness_scale = (cap['parameters']['range']['min'], cap['parameters']['range']['max'])
             elif cap['type'] == 'devices.capabilities.color_setting' and cap['instance'] == 'colorRgb':
+                self._attr_supported_color_modes.difference_update({ColorMode.ONOFF, ColorMode.BRIGHTNESS})
                 self._attr_supported_color_modes.add(ColorMode.RGB)
             elif cap['type'] == 'devices.capabilities.color_setting' and cap['instance'] == 'colorTemperatureK':
+                self._attr_supported_color_modes.difference_update({ColorMode.ONOFF, ColorMode.BRIGHTNESS})
                 self._attr_supported_color_modes.add(ColorMode.COLOR_TEMP)
                 self._attr_min_color_temp_kelvin = cap['parameters']['range']['min']
                 self._attr_max_color_temp_kelvin = cap['parameters']['range']['max']
@@ -129,6 +133,7 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
                 pass  # TO-BE-DONE: implement as select ? unsure about setting effect
             else:
                 _LOGGER.debug("%s - %s: _init_platform_specific: cap unhandled: %s", self._api_id, self._identifier, cap)
+        self._attr_color_mode = next(iter(self._attr_supported_color_modes))
 
     def _getRGBfromI(self, RGBint):
         blue = RGBint & 255
@@ -168,13 +173,20 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
     def color_temp_kelvin(self) -> int | None:
         """Return the color temperature in Kelvin."""
         value = GoveeAPI_GetCachedStateValue(self.hass, self._entry_id, self._device_cfg.get('device'), 'devices.capabilities.color_setting', 'colorTemperatureK')
+        if _attr_color_temp_kelvin != value and value != 0:
+            self._attr_color_mode = ColorMode.COLOR_TEMP
+        self._attr_color_temp_kelvin = value
         return value
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
         """Return the rgb color."""
         value = GoveeAPI_GetCachedStateValue(self.hass, self._entry_id, self._device_cfg.get('device'), 'devices.capabilities.color_setting', 'colorRgb')
-        return self._getRGBfromI(value)
+        value = self._getRGBfromI(value)
+        if self._attr_rgb_color != value:
+            self._attr_color_mode = ColorMode.RGB
+        self._attr_rgb_color = value
+        return value
 
     async def async_turn_on(self, **kwargs) -> None:
         """Async: Turn entity on"""
